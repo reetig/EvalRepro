@@ -43,7 +43,10 @@ dev = [
   "pytest-cov>=6.2",
   "ruff>=0.12",
 ]
-
+huggingface = [
+    "datasets>=2.18.0,<4.0.0",
+    "huggingface-hub>=0.20.0",
+]
 [project.scripts]
 evalrepro = "evalrepro.cli:entrypoint"
 
