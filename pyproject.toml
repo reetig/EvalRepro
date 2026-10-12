@@ -44,8 +44,8 @@ dev = [
   "ruff>=0.12",
 ]
 huggingface = [
-    "datasets>=2.14.0",
-    "huggingface_hub>=0.19.0"
+    "datasets>=2.14.0,<3.0.0",
+    "huggingface_hub>=0.19.0,<1.0.0"
 ]
 [project.scripts]
 evalrepro = "evalrepro.cli:entrypoint"

@@ -90,7 +90,7 @@ def test_semantic_drift_same_count(base_dataset: Dataset) -> None:
 
 
 def test_coverage_mismatch_and_sample_limit(base_dataset: Dataset) -> None:
-    """A partial selection using sample_limit must trigger a coverage_mismatch against the full set."""
+    """Using sample_limit must trigger a coverage_mismatch against the full set."""
     source = huggingface_dataset_source(
         base_dataset, dataset_name="test", field_map={"input": "input_col"}
     )
@@ -104,7 +104,7 @@ def test_coverage_mismatch_and_sample_limit(base_dataset: Dataset) -> None:
 
 
 def test_id_preview_flag(base_dataset: Dataset) -> None:
-    """Adapter id_column powers previews, which can be safely stripped."""
+    """Adapter id_column powers previews, which can be safely stripped"""
     source = huggingface_dataset_source(
         base_dataset, dataset_name="test", field_map={"input": "input_col"}, id_column="qid"
     )
