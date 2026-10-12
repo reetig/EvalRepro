@@ -4,9 +4,7 @@ import pytest
 
 # Skip the entire test module if datasets is not installed
 datasets = pytest.importorskip("datasets")
-from datasets import Dataset, Image, Features, Value
 from datasets import Dataset, Image, Features, Value, Sequence
-
 from evalrepro.adapters.huggingface import huggingface_dataset_source
 from evalrepro.errors import AdapterError
 

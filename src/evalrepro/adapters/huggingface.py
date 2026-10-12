@@ -20,7 +20,7 @@ def _validate_features(features: Any, path: str = "") -> None:
             f"Unsupported media feature at column '{path}': {type(features).__name__}. "
             "Media features are not supported in version 1."
         )
-    
+
     if isinstance(features, dict):
         for key, value in features.items():
             _validate_features(value, f"{path}.{key}" if path else key)
@@ -41,7 +41,7 @@ def huggingface_dataset_source(
 ) -> SnapshotSource:
     """
     Load an in-memory Hugging Face Dataset into a SnapshotSource.
-    
+
     Args:
         dataset: A loaded datasets.Dataset object.
         dataset_name: The stable semantic identity of the dataset.
@@ -60,17 +60,23 @@ def huggingface_dataset_source(
         ) from exc
 
     if not isinstance(dataset, datasets.Dataset):
-        raise AdapterError(f"Expected a non-streaming datasets.Dataset, got {type(dataset).__name__}")
+        raise AdapterError(
+            f"Expected a non-streaming datasets.Dataset, got {type(dataset).__name__}"
+        )
 
     available_columns = set(dataset.column_names)
-    
+
     # Strictly enforce field mapping
     valid_target_fields = {"input", "target", "choices", "metadata"}
     for target, source in field_map.items():
         if target not in valid_target_fields:
-            raise AdapterError(f"Invalid target field '{target}'. Must be one of: {', '.join(valid_target_fields)}")
+            raise AdapterError(
+                f"Invalid target field '{target}'. Must be one of: {', '.join(valid_target_fields)}"
+            )
         if source not in available_columns:
-            raise AdapterError(f"Mapped source column '{source}' for target '{target}' not found in dataset.")
+            raise AdapterError(
+                f"Mapped source column '{source}' for target '{target}' not found in dataset."
+            )
 
     if id_column and id_column not in available_columns:
         raise AdapterError(f"ID column '{id_column}' not found in dataset.")
@@ -84,10 +90,10 @@ def huggingface_dataset_source(
         record: dict[str, Any] = {}
         if id_column:
             record["id"] = row[id_column]
-            
+
         for target_field, source_column in field_map.items():
             record[target_field] = row[source_column]
-            
+
         records.append(record)
 
     # Extract safe provenance metadata
@@ -96,7 +102,7 @@ def huggingface_dataset_source(
         "explicit_revision": revision,
         "huggingface_datasets_version": datasets.__version__,
     }
-    
+
     if hasattr(dataset, "info") and dataset.info:
         if dataset.info.version:
             provenance["dataset_info_version"] = str(dataset.info.version)
