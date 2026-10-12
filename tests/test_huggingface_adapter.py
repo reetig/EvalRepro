@@ -2,11 +2,12 @@
 
 import pytest
 
-# Skip the entire test module if datasets is not installed
-datasets = pytest.importorskip("datasets")
-from datasets import Dataset, Image, Features, Value, Sequence
 from evalrepro.adapters.huggingface import huggingface_dataset_source
 from evalrepro.errors import AdapterError
+
+# Skip the entire test module if datasets is not installed
+pytest.importorskip("datasets")
+from datasets import Dataset, Features, Image, Sequence, Value
 
 
 @pytest.fixture
@@ -137,7 +138,7 @@ def test_invalid_id_column_fails(synthetic_dataset: Dataset) -> None:
 
 def test_invalid_dataset_type_fails() -> None:
     """Adapter must reject standard Python lists or other non-Dataset objects."""
-    with pytest.raises(AdapterError, match="Expected a non-streaming datasets.Dataset"):
+    with pytest.raises(AdapterError, match=r"Expected a non-streaming datasets\.Dataset"):
         huggingface_dataset_source(
             ["not", "a", "dataset"],  # type: ignore
             dataset_name="test",
