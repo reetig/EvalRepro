@@ -14,11 +14,10 @@ ADAPTER_CONTRACT_VERSION = 1
 def _validate_features(features: Any, path: str = "") -> None:
     """
     Recursively inspect features to enforce a strict allowlist.
-    Note: The entire dataset schema is checked, meaning even unmapped
-    unsupported features will intentionally cause rejection.
+    Note: Unmapped unsupported features will intentionally cause rejection.
     """
     try:
-        import datasets  # type: ignore[import-not-found, import-untyped]
+        import datasets  # type: ignore[import-not-found, import-untyped, unused-ignore]
     except ImportError:
         return
 
@@ -28,7 +27,6 @@ def _validate_features(features: Any, path: str = "") -> None:
     elif isinstance(features, datasets.Sequence):
         _validate_features(features.feature, f"{path}[]")
     elif isinstance(features, (datasets.Value, datasets.ClassLabel)):
-        # Explicitly allowed leaf types
         pass
     else:
         raise AdapterError(
@@ -47,20 +45,9 @@ def huggingface_dataset_source(
     id_column: str | None = None,
     revision: str | None = None,
 ) -> SnapshotSource:
-    """
-    Load an in-memory Hugging Face Dataset into a SnapshotSource.
-
-    Args:
-        dataset: A loaded datasets.Dataset object.
-        dataset_name: The stable semantic identity of the dataset.
-        field_map: Mapping of EvalRepro fields (e.g., 'input', 'target') to dataset columns.
-        config_name: The dataset configuration/subset name, if applicable.
-        split_name: The dataset split name, if applicable.
-        id_column: The dataset column to use for compact previews.
-        revision: The explicit caller-provided revision.
-    """
+    """Load an in-memory Hugging Face Dataset into a SnapshotSource."""
     try:
-        import datasets  # type: ignore[import-not-found, import-untyped]
+        import datasets  # type: ignore[import-not-found, import-untyped, unused-ignore]
     except ImportError as exc:
         raise AdapterError(
             "The 'datasets' package is required for this adapter. "
@@ -68,28 +55,39 @@ def huggingface_dataset_source(
         ) from exc
 
     if not isinstance(dataset, datasets.Dataset):
-        raise AdapterError(
-            f"Expected a non-streaming datasets.Dataset, got {type(dataset).__name__}"
-        )
+        raise AdapterError(f"Expected datasets.Dataset, got {type(dataset).__name__}")
 
-    # Point 3: Reject blank dataset identities and empty maps
-    if not dataset_name or not str(dataset_name).strip():
+    # Strict type and empty-value validation for all parameters
+    if not isinstance(dataset_name, str) or not dataset_name.strip():
         raise AdapterError("dataset_name must be a non-empty string.")
 
-    if not field_map:
-        raise AdapterError("field_map cannot be empty.")
+    for param_name, param_val in [
+        ("config_name", config_name),
+        ("split_name", split_name),
+        ("id_column", id_column),
+        ("revision", revision),
+    ]:
+        if param_val is not None and (not isinstance(param_val, str) or not param_val.strip()):
+            raise AdapterError(f"{param_name} must be a non-empty string if provided.")
 
-    # Point 3: Canonicalize fields and copy the map so caller mutation cannot change scope
+    if not isinstance(field_map, dict) or not field_map:
+        raise AdapterError("field_map must be a non-empty dictionary.")
+
     valid_target_fields = {"input", "target", "choices", "metadata"}
     canonical_map = {}
+
     for target, source in field_map.items():
-        if not target or not source or not str(target).strip() or not str(source).strip():
+        if not isinstance(target, str) or not isinstance(source, str):
+            raise AdapterError(
+                f"field_map keys and values must be strings. Got: {target!r}: {source!r}"
+            )
+        if not target.strip() or not source.strip():
             raise AdapterError(f"Malformed field_map entry: {target!r}: {source!r}")
         if target not in valid_target_fields:
             raise AdapterError(
                 f"Invalid target field '{target}'. Must be one of: {', '.join(valid_target_fields)}"
             )
-        canonical_map[target] = str(source)
+        canonical_map[target] = source
 
     available_columns = set(dataset.column_names)
     for target, source in canonical_map.items():
@@ -101,10 +99,8 @@ def huggingface_dataset_source(
     if id_column and id_column not in available_columns:
         raise AdapterError(f"ID column '{id_column}' not found in dataset.")
 
-    # Point 1: Fail closed on unsupported features (checks entire schema)
     _validate_features(dataset.features)
 
-    # Map records using the canonical map
     records = []
     for row in dataset:
         record: dict[str, Any] = {}
@@ -116,11 +112,11 @@ def huggingface_dataset_source(
 
         records.append(record)
 
-    # Point 4: Remove huggingface_datasets_version from provenance
     provenance: dict[str, Any] = {
         "source": "huggingface-dataset",
-        "explicit_revision": revision,
     }
+    if revision:
+        provenance["explicit_revision"] = revision
 
     if hasattr(dataset, "info") and dataset.info:
         if dataset.info.version:
@@ -128,7 +124,6 @@ def huggingface_dataset_source(
         if dataset.info.dataset_size:
             provenance["dataset_size_bytes"] = dataset.info.dataset_size
 
-    # Point 3: Canonicalize fields so map insertion order doesn't change scope
     canonical_fields = tuple(sorted(canonical_map.keys()))
 
     return SnapshotSource(
@@ -142,13 +137,12 @@ def huggingface_dataset_source(
             "adapter_contract_version": ADAPTER_CONTRACT_VERSION,
             "field_map_version": 1,
             "field_map": canonical_map,
-            "id_column": id_column,  # Point 3: Include source id_column in semantic parameters
+            "id_column": id_column,
         },
         records=records,
         declared_count=len(dataset),
         fields=canonical_fields,
         id_field="id" if id_column else None,
-        # Point 4: Pass dependencies to runtime_versions
         runtime=runtime_versions(("datasets", "huggingface_hub")),
         provenance=provenance,
     )

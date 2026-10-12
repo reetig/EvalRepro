@@ -2,16 +2,30 @@
 
 The `huggingface_dataset_source` adapter maps an already-loaded, non-streaming `datasets.Dataset` into an immutable `SnapshotSource`.
 
+## Installation & Responsibility
+Install the optional dependency:
+`pip install evalrepro[huggingface]`
+
+**License Boundary:** EvalRepro generates cryptographic hashes of dataset contents. It does not download datasets or manage licenses. The caller is responsible for accepting any Hugging Face Hub conditions, authenticating, and supplying a locally loaded `Dataset`. Hashing does **not** constitute anonymization.
+
 ## Python API & Selected-Column Scope
-The adapter requires a strict `field_map` mapping EvalRepro target fields (`input`, `target`, `choices`, `metadata`) to existing dataset columns. Unmapped columns are strictly ignored. The adapter canonicalizes this mapping so caller dictionary mutation or insertion order cannot alter the semantic scope or the resulting snapshot hash.
+The adapter canonicalizes the `field_map` so caller dictionary mutation or insertion order cannot alter the semantic scope. Unmapped columns are strictly ignored.
 
-## Supported Features (Fail-Closed)
-To prevent silently dropping or hashing opaque binary media, the adapter strictly validates the entire `Dataset.features` schema prior to extraction.
-* **Supported:** `Value`, `ClassLabel`, and nested `Sequence` or `dict` containers.
-* **Rejected:** `Image`, `Audio`, or any unmapped/unsupported features (raises `AdapterError` before iteration).
+```python
+from datasets import load_dataset
+from evalrepro.adapters.huggingface import huggingface_dataset_source
+from evalrepro.manifest import build_manifest
 
-## Privacy & ID Previews
-If an `id_column` is provided in the parameters, it powers compact previews in the manifest records. Supplying the `include_id_preview=False` flag safely strips these preview values from the export while preserving the overall semantic hash.
+ds = load_dataset("harvey-lab/contracts", split="train")
 
-## Partial Coverage Limitations
-If a dataset is sliced or restricted using a `sample_limit`, a comparison against the full dataset will correctly trigger a `coverage_mismatch` verdict to warn researchers that the evaluation scope differs.
+source = huggingface_dataset_source(
+    ds,
+    dataset_name="harvey-lab/contracts",
+    split_name="train",
+    id_column="contract_id",
+    field_map={"input": "document_text", "target": "issue_label"},
+    revision="a1b2c3d4"  # Explicit caller provenance
+)
+
+# Strip previews from the final manifest
+manifest = build_manifest(source, include_id_preview=False)

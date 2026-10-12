@@ -51,21 +51,31 @@ jobs:
       - name: Build wheel
         if: matrix.python-version == '3.12'
         run: python -m build
-test-huggingface:
+        
+  test-huggingface:
     name: Test Hugging Face Adapter
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
       - name: Install dependencies (with extra)
         run: pip install -e ".[dev,huggingface]"
-      - name: Run strict typing on adapter
-        run: mypy src/evalrepro/adapters/huggingface.py tests/test_huggingface_adapter.py
-      - name: Run adapter tests
-        run: pytest tests/test_huggingface_adapter.py
+
+      - name: Run strict typing
+        run: mypy src/evalrepro tests/
+
+      - name: Run full suite and coverage
+        run: pytest --cov=src/evalrepro --cov-branch  
