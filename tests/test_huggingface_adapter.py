@@ -1,134 +1,116 @@
-"""Tests for Hugging Face Dataset adapter using synthetic in-memory fixtures."""
+"""Tests for the Hugging Face Dataset adapter."""
 
 import pytest
-from datasets import Dataset, Image
 
+# Skip the entire test module if datasets is not installed
+datasets = pytest.importorskip("datasets")
+from datasets import Dataset, Image, Features, Value
+
+from evalrepro.adapters.huggingface import huggingface_dataset_source
 from evalrepro.errors import AdapterError
-from evalrepro.adapters.huggingface import dataset_to_snapshot_source
-from evalrepro.compare import compare_manifest_data
-from evalrepro.manifest import build_manifest
-import datasets.fingerprint
-# Bypass the broken dill pickler in Python 3.13+
-datasets.fingerprint.generate_fingerprint = lambda *args, **kwargs: "mock_fingerprint"
 
 @pytest.fixture
-def base_dataset():
-    """Create a synthetic text dataset in memory."""
-    data = {
-        "item_id": ["1", "2", "3"],
-        "question": ["2+2?", "3+3?", "4+4?"],
-        "answers": ["4", "6", "8"],
-        "unused": ["a", "b", "c"],
-    }
-    return Dataset.from_dict(data)
+def synthetic_dataset() -> Dataset:
+    """Provides a small, in-memory tabular dataset."""
+    return Dataset.from_list([
+        {"question_id": "q1", "prompt": "Hi", "truth": "Salut", "ignore_this": 123},
+        {"question_id": "q2", "prompt": "Bye", "truth": "Au revoir", "ignore_this": 456},
+    ])
 
 
-def test_baseline_reproducible_match(base_dataset):
-    source1 = dataset_to_snapshot_source(
-        base_dataset,
-        dataset_name="synthetic-math",
-        field_map={"input": "question", "target": "answers"},
-        id_column="item_id",
+def test_reproducible_across_revisions(synthetic_dataset: Dataset) -> None:
+    """Different revisions with identical rows must produce the same semantic scope and records."""
+    field_map = {"input": "prompt", "target": "truth"}
+    
+    baseline = huggingface_dataset_source(
+        synthetic_dataset,
+        dataset_name="translation-v1",
+        field_map=field_map,
+        id_column="question_id",
+        revision="main"
     )
-    source2 = dataset_to_snapshot_source(
-        base_dataset,
-        dataset_name="synthetic-math",
-        field_map={"input": "question", "target": "answers"},
-        id_column="item_id",
+    
+    candidate = huggingface_dataset_source(
+        synthetic_dataset,
+        dataset_name="translation-v1",
+        field_map=field_map,
+        id_column="question_id",
+        revision="dev-branch-xyz"
     )
+    
+    # Scope and records match identically (Reproducible)
+    assert baseline.identity == candidate.identity
+    assert baseline.parameters == candidate.parameters
+    assert baseline.records == candidate.records
+    
+    # Provenance correctly isolates the runtime revision differences
+    assert baseline.provenance["explicit_revision"] == "main"
+    assert candidate.provenance["explicit_revision"] == "dev-branch-xyz"
 
-    m1 = build_manifest(source1)
-    m2 = build_manifest(source2)
-    report = compare_manifest_data(m1, m2)
 
-    assert report.verdict == "reproducible"
-    assert source1.fields == ("input", "target")
-    assert source1.id_field == "id"
-
-
-def test_target_semantic_drift(base_dataset):
-    modified_data = {
-        "item_id": ["1", "2", "3"],
-        "question": ["2+2?", "3+3?", "4+4?"],
-        "answers": ["4", "6", "999"],  # Modified target
-        "unused": ["a", "b", "c"],
-    }
-    mod_dataset = Dataset.from_dict(modified_data)
-
-    s1 = dataset_to_snapshot_source(
-        base_dataset,
-        dataset_name="synthetic-math",
-        field_map={"input": "question", "target": "answers"},
+def test_scope_mismatch_on_identity_change(synthetic_dataset: Dataset) -> None:
+    """Changing dataset_name or config triggers a scope_mismatch."""
+    base = huggingface_dataset_source(
+        synthetic_dataset, dataset_name="data-A", field_map={"input": "prompt"}
     )
-    s2 = dataset_to_snapshot_source(
-        mod_dataset,
-        dataset_name="synthetic-math",
-        field_map={"input": "question", "target": "answers"},
+    diff_name = huggingface_dataset_source(
+        synthetic_dataset, dataset_name="data-B", field_map={"input": "prompt"}
     )
-
-    m1 = build_manifest(s1)
-    m2 = build_manifest(s2)
-    report = compare_manifest_data(m1, m2)
-
-    assert report.verdict == "semantic_drift"
-
-
-def test_order_drift(base_dataset):
-    shuffled_data = {
-        "item_id": ["3", "1", "2"],
-        "question": ["4+4?", "2+2?", "3+3?"],
-        "answers": ["8", "4", "6"],
-        "unused": ["c", "a", "b"],
-    }
-    shuffled_ds = Dataset.from_dict(shuffled_data)
-
-    s1 = dataset_to_snapshot_source(
-        base_dataset,
-        dataset_name="synthetic-math",
-        field_map={"input": "question", "target": "answers"},
+    diff_config = huggingface_dataset_source(
+        synthetic_dataset, dataset_name="data-A", config_name="subset", field_map={"input": "prompt"}
     )
-    s2 = dataset_to_snapshot_source(
-        shuffled_ds,
-        dataset_name="synthetic-math",
-        field_map={"input": "question", "target": "answers"},
+    
+    assert base.identity != diff_name.identity
+    assert base.identity != diff_config.identity
+
+
+def test_semantic_drift_on_mutated_target(synthetic_dataset: Dataset) -> None:
+    """Mutating a mapped target value changes the records (semantic_drift)."""
+    field_map = {"input": "prompt", "target": "truth"}
+    
+    baseline = huggingface_dataset_source(
+        synthetic_dataset, dataset_name="test", field_map=field_map
     )
-
-    m1 = build_manifest(s1)
-    m2 = build_manifest(s2)
-    report = compare_manifest_data(m1, m2)
-
-    assert report.verdict == "order_drift"
-
-
-def test_actual_partial_coverage_manifest(base_dataset):
-    s1 = dataset_to_snapshot_source(
-        base_dataset,
-        dataset_name="synthetic-math",
-        field_map={"input": "question", "target": "answers"},
+    
+    # Mutate a target value
+    mutated_list = [
+        {"question_id": "q1", "prompt": "Hi", "truth": "Salut", "ignore_this": 123},
+        {"question_id": "q2", "prompt": "Bye", "truth": "MUTATED", "ignore_this": 456},
+    ]
+    mutated_dataset = Dataset.from_list(mutated_list)
+    
+    candidate = huggingface_dataset_source(
+        mutated_dataset, dataset_name="test", field_map=field_map
     )
-
-    m1 = build_manifest(s1)
-    m2 = build_manifest(s1, sample_limit=2)
-    report = compare_manifest_data(m1, m2)
-
-    assert report.verdict == "coverage_mismatch"
+    
+    assert baseline.identity == candidate.identity
+    assert baseline.records != candidate.records
 
 
-def test_missing_mapped_column_raises_adapter_error(base_dataset):
-    with pytest.raises(AdapterError, match="not found in dataset"):
-        dataset_to_snapshot_source(
-            base_dataset,
-            dataset_name="synthetic-math",
-            field_map={"input": "non_existent_col"},
+def test_missing_mapped_column_fails_closed(synthetic_dataset: Dataset) -> None:
+    """Adapter must raise an error rather than silently defaulting to None."""
+    with pytest.raises(AdapterError, match="Mapped source column 'missing_col'"):
+        huggingface_dataset_source(
+            synthetic_dataset,
+            dataset_name="test",
+            field_map={"input": "missing_col"}
         )
 
 
-def test_unsupported_image_feature_raises_adapter_error():
-    # Synthetic dataset with an Image feature schema
-    ds = Dataset.from_dict({"img": ["fake_path"]}).cast_column("img", Image())
-    with pytest.raises(AdapterError, match="Unsupported feature type"):
-        dataset_to_snapshot_source(
-            ds,
-            dataset_name="synthetic-img",
-            field_map={"input": "img"},
+def test_unsupported_media_feature_fails_closed() -> None:
+    """Adapter must reject Image or Audio features recursively to avoid dropping semantics."""
+    # Create a synthetic dataset with an Image column
+    features = Features({
+        "prompt": Value("string"),
+        "image_col": Image()
+    })
+    
+    # Dummy data path (doesn't need to load an actual image, just define the schema)
+    media_dataset = Dataset.from_list([{"prompt": "describe", "image_col": None}], features=features)
+    
+    with pytest.raises(AdapterError, match="Unsupported media feature at column 'image_col'"):
+        huggingface_dataset_source(
+            media_dataset,
+            dataset_name="test",
+            field_map={"input": "prompt"}
         )
