@@ -465,7 +465,12 @@ def test_ids_with_and_without_mapping_and_preview_exclusion(
     assert without_id.id_field is None
     assert "id" not in next(iter(without_id.records))
     no_id_manifest = build_manifest(without_id)
-    assert no_id_manifest["samples"]["id_preview"] == {"first": [], "last": []}
+    assert no_id_manifest["samples"]["id_preview"] == {
+        "first": [None, None],
+        "last": [],
+    }
+    # Verify that IDs participate in whole-record hashes, not just previews
+    assert no_id_manifest["samples"]["ordered_hashes"] != visible["samples"]["ordered_hashes"]
 
 
 def test_safe_provenance_excludes_urls_checksums_and_paths(
