@@ -96,3 +96,12 @@ python_version = "3.11"
 strict = true
 packages = ["evalrepro"]
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "datasets",
+    "datasets.*",
+    "huggingface_hub",
+    "huggingface_hub.*",
+]
+ignore_missing_imports = true

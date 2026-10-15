@@ -45,37 +45,46 @@ jobs:
       - name: Type check
         run: mypy src/evalrepro tools/harvey_lab_case_study.py
 
-      - name: Test
-        run: pytest --cov=evalrepro --cov-report=term-missing
+      - name: Test (Core-only)
+        run: |
+          coverage run -m pytest
+          coverage report --omit="src/evalrepro/__main__.py,src/evalrepro/adapters/huggingface.py"
 
       - name: Build wheel
         if: matrix.python-version == '3.12'
         run: python -m build
-        
+
   test-huggingface:
-    name: Test Hugging Face Adapter
+    name: Test Hugging Face Adapter (${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.1
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
 
-      - name: Install dependencies (with extra)
-        run: pip install -e ".[dev,huggingface]"
+      - name: Install dependencies (with Hugging Face extra)
+        run: python -m pip install -e ".[dev,huggingface]"
 
-      - name: Run strict typing
-        run: mypy src/evalrepro tests/
+      - name: Verify Hugging Face dependencies
+        run: python -c "import datasets, huggingface_hub; print('datasets:', datasets.__version__, 'huggingface_hub:', huggingface_hub.__version__)"
 
-      - name: Run full suite and coverage
-        run: pytest --cov=src/evalrepro --cov-branch  
+      - name: Type check
+        run: mypy src/evalrepro tools/harvey_lab_case_study.py tests/test_huggingface_adapter.py
+
+      - name: Test Hugging Face adapter explicitly
+        run: pytest tests/test_huggingface_adapter.py -rs
+
+      - name: Test full suite and coverage
+        run: pytest --cov=evalrepro --cov-report=term-missing
