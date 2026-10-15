@@ -43,7 +43,10 @@ dev = [
   "pytest-cov>=6.2",
   "ruff>=0.12",
 ]
-
+huggingface = [
+    "datasets>=2.21.0,<3.0.0",
+    "huggingface_hub>=0.36.2,<1.0.0",
+]
 [project.scripts]
 evalrepro = "evalrepro.cli:entrypoint"
 
@@ -93,3 +96,12 @@ python_version = "3.11"
 strict = true
 packages = ["evalrepro"]
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "datasets",
+    "datasets.*",
+    "huggingface_hub",
+    "huggingface_hub.*",
+]
+ignore_missing_imports = true
