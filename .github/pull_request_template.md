@@ -1,21 +1,18 @@
-## Problem
+## Summary
 
-What evaluation or contributor problem does this change solve?
+Describe the problem this pull request solves and the user-visible behaviour it changes.
 
-## Change
+## Validation
 
-Describe the smallest useful change and any compatibility implications.
+List the tests, commands, workflows, or reproducibility evidence used to validate the change.
 
-## Evidence
+## Checklist
 
-- [ ] Tests added or updated
-- [ ] `ruff format --check .`
-- [ ] `ruff check .`
-- [ ] `mypy src/evalrepro`
-- [ ] `pytest --cov=evalrepro`
-- [ ] No confidential/raw evaluation data included
-- [ ] Claims of compatibility or performance are backed by reproducible evidence
+- [ ] I kept this pull request focused on one concern.
+- [ ] I added or updated tests when behaviour changed.
+- [ ] I did not include confidential evaluation data, credentials, or raw copyrighted datasets.
+- [ ] I disclosed material use of coding agents and personally reviewed and tested the result.
 
-## AI-assisted development
+## How did you find EvalRepro? (optional)
 
-Describe material coding-agent use and the human review/testing performed, or write `None`.
+If you are comfortable sharing, tell us how you discovered the project—for example GitHub Marketplace or search, Up For Grabs, Good First Issue, CodeTriage/GitOpen, an article or discussion, or a personal referral. Leave this section blank if you prefer not to say.

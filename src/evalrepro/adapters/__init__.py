@@ -5,4 +5,4 @@ from evalrepro.adapters.harvey_lab import harvey_lab_source
 from evalrepro.adapters.jsonl import jsonl_source
 from evalrepro.adapters.promptfoo import promptfoo_source
 
-__all__ = ["SnapshotSource", "harvey_lab_source", "jsonl_source", "promptfoo_source"]
+__all__ = ["SnapshotSource", "harvey_lab_source", "jsonl_source","huggingface_dataset_source", "promptfoo_source"]
