@@ -640,8 +640,17 @@ def _build_record(
     _require_non_negative_int(result_map.get("testIdx"), f"{path}.testIdx")
     prompt_id = _require_str(result_map.get("promptId"), f"{path}.promptId")
 
-    summary_prompt = summary_prompts[prompt_idx] if prompt_idx < len(summary_prompts) else None
+    if prompt_idx >= len(summary_prompts):
+        raise AdapterError(f"{path}.promptIdx: index out of bounds for summary prompts.")
+    summary_prompt = summary_prompts[prompt_idx]
+
+    if summary_prompt.get("id") is not None and summary_prompt["id"] != prompt_id:
+        raise AdapterError(f"{path}.promptId: inconsistent with referenced summary prompt.")
+
     prompt_def = _normalise_prompt(result_map.get("prompt"), summary_prompt, f"{path}.prompt")
+
+    if prompt_def.get("id") is not None and prompt_def["id"] != prompt_id:
+        raise AdapterError(f"{path}.prompt.id: inconsistent with result promptId.")
 
     test_path = f"{path}.testCase"
     test_case = _require_dict(result_map.get("testCase"), test_path)
@@ -665,6 +674,10 @@ def _build_record(
         if test_options_raw is not None
         else {}
     )
+    if "repeat" in test_options:
+        rep = test_options["repeat"]
+        if isinstance(rep, bool) or not isinstance(rep, int) or rep <= 0:
+            raise AdapterError(f"{test_path}.options.repeat: expected a positive integer.")
 
     test_asserts_raw = test_case.get("assert")
     effective_assertions = (
@@ -684,9 +697,20 @@ def _build_record(
         transforms["providerTransform"] = provider_def["transform"]
 
     grader_config: dict[str, Any] = {}
-    for key in _TEST_OPTION_GRADER_KEYS:
+    for key in ("rubricPrompt", "provider"):
         if key in test_options and test_options[key] is not None:
-            grader_config[key] = test_options[key]
+            val = test_options[key]
+            if key == "rubricPrompt" and not isinstance(val, str):
+                raise AdapterError(f"{test_path}.options.{key}: expected a string.")
+            if key == "provider" and not isinstance(val, (str, dict)):
+                raise AdapterError(f"{test_path}.options.{key}: expected a string or object.")
+            grader_config[key] = val
+
+    if "factuality" in test_options and test_options["factuality"] is not None:
+        grader_config["factuality"] = _require_dict(
+            test_options["factuality"], f"{test_path}.options.factuality"
+        )
+
     scoring_fn = test_case.get("assertScoringFunction")
     if scoring_fn is not None:
         grader_config["assertScoringFunction"] = _require_str(
@@ -694,9 +718,30 @@ def _build_record(
         )
 
     effective_test_options: dict[str, Any] = {}
-    for key in _TEST_OPTION_PROMPT_KEYS:
+    for key in ("prefix", "suffix"):
         if key in test_options and test_options[key] is not None:
-            effective_test_options[key] = test_options[key]
+            effective_test_options[key] = _require_str(
+                test_options[key], f"{test_path}.options.{key}"
+            )
+
+    for key in (
+        "disableVarExpansion",
+        "disableConversationVar",
+        "disableDefaultAsserts",
+        "runSerially",
+    ):
+        if key in test_options and test_options[key] is not None:
+            val = test_options[key]
+            if not isinstance(val, bool):
+                raise AdapterError(f"{test_path}.options.{key}: expected a boolean.")
+            effective_test_options[key] = val
+
+    if "repeat" in test_options and test_options["repeat"] is not None:
+        rep = test_options["repeat"]
+        if isinstance(rep, bool) or not isinstance(rep, int) or rep <= 0:
+            raise AdapterError(f"{test_path}.options.repeat: expected a positive integer.")
+        effective_test_options["repeat"] = rep
+
     options_extra = {k: v for k, v in test_options.items() if k not in _TEST_OPTION_KNOWN_KEYS}
     if options_extra:
         effective_test_options["extra"] = options_extra
@@ -721,9 +766,13 @@ def _build_record(
     }
 
     has_provider_output = "providerOutput" in test_case
-    provider_output = test_case.get("providerOutput")
-    if provider_output is not None and not isinstance(provider_output, (str, dict)):
-        raise AdapterError(f"{test_path}.providerOutput: expected a string or object.")
+    provider_output_val: Any = None
+    if has_provider_output:
+        provider_output_val = test_case["providerOutput"]
+        if not isinstance(provider_output_val, (str, dict)):
+            raise AdapterError(
+                f"{test_path}.providerOutput: expected a string or object, not null."
+            )
 
     test_meta_raw = test_case.get("metadata")
     effective_test_meta = (
@@ -743,10 +792,15 @@ def _build_record(
         "prompt": prompt_def,
         "vars": effective_vars,
         "provider": provider_def,
-        "transform": transforms or None,
     }
+
+    if transforms:
+        input_payload["transform"] = transforms
+    else:
+        input_payload["transform"] = None
+
     if has_provider_output:
-        input_payload["provider_output"] = provider_output
+        input_payload["provider_output"] = provider_output_val
 
     target_payload: dict[str, Any] = {
         "assertions": effective_assertions,
@@ -848,7 +902,9 @@ def promptfoo_source(
     results_list = _require_list(results_summary.get("results"), "$.results.results")
 
     raw_config = export_data.get("config")
-    config = _require_dict(raw_config, "$.config") if raw_config is not None else {}
+    if raw_config is None:
+        raise AdapterError("$.config: missing required top-level object.")
+    config = _require_dict(raw_config, "$.config")
 
     raw_runtime_options = export_data.get("runtimeOptions")
     runtime_options = (

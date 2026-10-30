@@ -35,8 +35,9 @@ def _base_result() -> dict[str, Any]:
         "vars": {"word": "Hello", "lang": "Spanish"},
         "testCase": {
             "description": "Greeting translation test",
-            "vars": {"word": "Hello", "lang": "Spanish"},
+            "vars": {"word": "Hello", "lang": "Spanish", "default_var": "d1"},
             "assert": [
+                {"type": "is-json"},
                 {
                     "type": "contains",
                     "value": "Hola",
@@ -67,7 +68,7 @@ def _base_result() -> dict[str, Any]:
             ],
             "assertScoringFunction": "file://score.py:score_fn",
             "options": {
-                "prefix": "sys:",
+                "prefix": "default:",
                 "suffix": ":end",
                 "postprocess": "output.strip()",
                 "transform": "output.lower()",
@@ -210,7 +211,15 @@ def test_v2_and_v3_parity_and_hash_only_privacy(tmp_path: Path) -> None:
     v2_path = _write_json(tmp_path / "secret_v2_path.json", _v2_payload())
     v3_path = _write_json(tmp_path / "secret_v3_path.json", _v3_payload())
 
-    m_v2 = build_manifest(promptfoo_source(v2_path, name="regression-suite"))
+    # Record-level exact-once assertion for defaultTest
+    source = promptfoo_source(v2_path, name="regression-suite")
+    assert source.declared_count == 1
+    is_json_asserts = [
+        a for a in source.records[0]["target"]["assertions"] if a["type"] == "is-json"
+    ]
+    assert len(is_json_asserts) == 1, "Default is-json assertion must be emitted exactly once."
+
+    m_v2 = build_manifest(source)
     m_v3 = build_manifest(promptfoo_source(v3_path, name="regression-suite"))
 
     comparison = compare_manifest_data(m_v2, m_v3)
@@ -309,6 +318,8 @@ def test_semantic_mutations_produce_semantic_drift(tmp_path: Path) -> None:
 
     p2 = copy.deepcopy(base)
     p2["results"]["results"][0]["promptId"] = "prompt-sha-2"
+    p2["results"]["results"][0]["prompt"]["id"] = "prompt-sha-2"
+    p2["results"]["table"]["head"]["prompts"][0]["id"] = "prompt-sha-2"
     mutations.append(("prompt_id", p2))
 
     p3 = copy.deepcopy(base)
@@ -434,17 +445,6 @@ def test_provider_schema_forms_and_resolution(tmp_path: Path) -> None:
     }
     m_single_obj = _manifest_for(tmp_path, "p_single_obj.json", p_single_obj)
     assert m_single_obj["coverage"]["processed_count"] == 1
-
-    # 4. Top-level string config.providers and out-of-range promptIdx fallback
-    p_top_str = _v3_payload()
-    p_top_str["config"]["providers"] = "openai:gpt-4o"
-    p_top_str["results"]["results"][0]["promptIdx"] = 5
-    del p_top_str["config"]["defaultTest"]
-    del p_top_str["config"]["evaluateOptions"]
-    del p_top_str["config"]["commandLineOptions"]
-    p_top_str["runtimeOptions"] = {}
-    m_top_str = _manifest_for(tmp_path, "p_top_str.json", p_top_str)
-    assert m_top_str["coverage"]["processed_count"] == 1
 
     # 5. Missing config.providers but testCase.provider present + duplicate identical provider defs
     p_dup_identical = _v3_payload()
@@ -577,6 +577,46 @@ def test_validation_and_error_branches(tmp_path: Path, monkeypatch: pytest.Monke
     c_bad_po = _v3_payload()
     c_bad_po["results"]["results"][0]["testCase"]["providerOutput"] = 123
     cases.append(("bad_po", c_bad_po, "providerOutput: expected a string or object"))
+
+    c_no_config = _v3_payload()
+    del c_no_config["config"]
+    cases.append(("no_config", c_no_config, r"\$\.config: missing required top-level"))
+
+    c_null_po = _v3_payload()
+    c_null_po["results"]["results"][0]["testCase"]["providerOutput"] = None
+    cases.append(("null_po", c_null_po, "providerOutput: expected a string or object"))
+
+    c_bad_repeat = _v3_payload()
+    c_bad_repeat["results"]["results"][0]["testCase"]["options"]["repeat"] = "many"
+    cases.append(("bad_repeat", c_bad_repeat, "options.repeat: expected a positive integer"))
+
+    c_bad_prompt_idx = _v3_payload()
+    c_bad_prompt_idx["results"]["results"][0]["promptIdx"] = 5
+    cases.append(("bad_prompt_idx", c_bad_prompt_idx, "promptIdx: index out of bounds"))
+
+    c_bad_prompt_id = _v3_payload()
+    c_bad_prompt_id["results"]["results"][0]["promptId"] = "mismatch-id"
+    cases.append(
+        ("bad_prompt_id", c_bad_prompt_id, "promptId: inconsistent with referenced summary prompt")
+    )
+
+    c_bad_res_prompt_id = _v3_payload()
+    c_bad_res_prompt_id["results"]["results"][0]["prompt"]["id"] = "wrong-id"
+    cases.append(
+        ("bad_res_prompt_id", c_bad_res_prompt_id, "prompt.id: inconsistent with result promptId")
+    )
+
+    c_bad_opt_bool = _v3_payload()
+    c_bad_opt_bool["results"]["results"][0]["testCase"]["options"]["disableVarExpansion"] = "false"
+    cases.append(("bad_opt_bool", c_bad_opt_bool, "disableVarExpansion: expected a boolean"))
+
+    c_bad_opt_str = _v3_payload()
+    c_bad_opt_str["results"]["results"][0]["testCase"]["options"]["prefix"] = 123
+    cases.append(("bad_opt_str", c_bad_opt_str, "prefix: expected a string"))
+
+    c_bad_opt_dict = _v3_payload()
+    c_bad_opt_dict["results"]["results"][0]["testCase"]["options"]["factuality"] = "bad"
+    cases.append(("bad_opt_dict", c_bad_opt_dict, "factuality: expected a JSON object"))
 
     for name, payload, pattern in cases:
         p = _write_json(tmp_path / f"err_{name}.json", payload)
